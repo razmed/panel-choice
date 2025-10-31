@@ -43,6 +43,7 @@ from ui.entete_choice_window import EnteteChoiceWindow
 from ui.login_window import LoginWindow
 from ui.panel_selector_window import PanelSelectorWindow
 from ui.admin_window import AdminWindow
+from ui.search_window import SearchWindow  # ✅ AJOUT DE L'IMPORT
 
 # Configuration du thème CustomTkinter
 ctk.set_appearance_mode("dark")  # "dark" ou "light"
@@ -174,6 +175,19 @@ class PortalApplication:
         right_frame = ctk.CTkFrame(self.navbar, fg_color="transparent")
         right_frame.pack(side="right", padx=30, pady=15)
         
+        # ✅ BOUTON RECHERCHE (AJOUTÉ)
+        self.search_button = ctk.CTkButton(
+            right_frame,
+            text="🔍 Rechercher",
+            width=140,
+            height=40,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color=("#28a745", "#1e7e34"),
+            hover_color=("#32b349", "#229143"),
+            command=self.open_search
+        )
+        self.search_button.pack(side="left", padx=5)
+        
         # Bouton Retour (initialement caché)
         self.back_button = ctk.CTkButton(
             right_frame,
@@ -301,6 +315,7 @@ class PortalApplication:
             font=ctk.CTkFont(size=32, weight="bold")
         )
         logo_label.pack(side="left", padx=(0, 15))
+    
     # ==================== NAVIGATION ====================
     
     def clear_content(self):
@@ -438,6 +453,79 @@ class PortalApplication:
                 "Erreur",
                 f"❌ Impossible d'ouvrir le PDF:\n{e}"
             )
+    
+    # ==================== RECHERCHE (✅ MÉTHODE AJOUTÉE) ====================
+    
+    def open_search(self):
+        """Ouvrir la fenêtre de recherche"""
+        print("🔍 Ouverture de la fenêtre de recherche")
+        
+        try:
+            # Créer une fenêtre TopLevel pour la recherche
+            search_window = ctk.CTkToplevel(self.root)
+            
+            # Initialiser la fenêtre de recherche avec callback de navigation
+            SearchWindow(
+                search_window,
+                self.db,
+                self.file_handler,
+                on_file_select=self.navigate_to_folder_from_search
+            )
+            
+            print("✅ Fenêtre de recherche ouverte")
+            
+        except Exception as e:
+            messagebox.showerror(
+                "Erreur",
+                f"❌ Impossible d'ouvrir la recherche:\n\n{e}"
+            )
+            print(f"❌ Erreur ouverture recherche: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def navigate_to_folder_from_search(self, folder_id: int):
+        """Naviguer vers un dossier depuis la recherche"""
+        print(f"🔍➡️ Navigation vers le dossier ID={folder_id} depuis la recherche")
+        
+        try:
+            # Récupérer les infos du dossier
+            folder = self.db.get_folder(folder_id)
+            
+            if not folder:
+                messagebox.showerror(
+                    "Erreur",
+                    "❌ Dossier introuvable"
+                )
+                return
+            
+            # Déterminer le panel du dossier
+            panel = folder.get('panel', 'interface_emp')
+            
+            # Afficher le panel et naviguer vers le dossier
+            self.current_panel = panel
+            self.current_view = 'panel'
+            self.folder_history = []
+            
+            # Ouvrir directement le dossier
+            self.open_folder_in_panel(folder_id)
+            
+            # Notification
+            if self.notification_manager:
+                self.notification_manager.show_app_notification(
+                    "📂 Navigation",
+                    f"Ouverture du dossier '{folder['name']}'"
+                )
+            
+            print(f"✅ Navigation réussie vers le dossier '{folder['name']}'")
+            
+        except Exception as e:
+            messagebox.showerror(
+                "Erreur",
+                f"❌ Impossible de naviguer:\n\n{e}"
+            )
+            print(f"❌ Erreur navigation: {e}")
+            import traceback
+            traceback.print_exc()
     
     # ==================== ADMINISTRATION ====================
     
