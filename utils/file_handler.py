@@ -43,6 +43,40 @@ class FileHandler:
         ext = os.path.splitext(filename)[1].lower()
         return ext in self.ALLOWED_EXTENSIONS
     
+    def count_files_to_import(self, folder_path: str) -> int:
+        """
+        Compter le nombre total de fichiers valides à importer dans un dossier (récursif)
+        
+        Args:
+            folder_path: Chemin du dossier à analyser
+            
+        Returns:
+            Nombre total de fichiers importables
+        """
+        total_count = 0
+        
+        try:
+            if not os.path.exists(folder_path):
+                print(f"⚠️ Dossier introuvable: {folder_path}")
+                return 0
+            
+            if not os.path.isdir(folder_path):
+                print(f"⚠️ Le chemin n'est pas un dossier: {folder_path}")
+                return 0
+            
+            # Parcourir récursivement tous les fichiers
+            for root, dirs, files in os.walk(folder_path):
+                for filename in files:
+                    if self.is_allowed_file(filename):
+                        total_count += 1
+            
+            print(f"📊 Total de fichiers à importer: {total_count}")
+            return total_count
+            
+        except Exception as e:
+            print(f"❌ Erreur lors du comptage des fichiers: {e}")
+            return 0
+    
     def save_file(self, source_path: str, filename: str, subfolder: str = "") -> Tuple[bool, str]:
         """
         Enregistrer un fichier dans le répertoire d'upload
@@ -106,7 +140,9 @@ class FileHandler:
     
     def save_files_from_folder_with_panel(self, folder_path: str, db, 
                                           parent_folder_id: Optional[int] = None,
-                                          panel: str = 'interface_emp') -> int:
+                                          panel: str = 'interface_emp',
+                                          progress_callback=None,
+                                          total: int = 0) -> int:
         """
         Importer un dossier complet avec TOUS ses fichiers et sous-dossiers dans un panel spécifique
         
@@ -115,11 +151,14 @@ class FileHandler:
             db: Instance de la base de données
             parent_folder_id: ID du dossier parent dans la BDD
             panel: Panel cible pour l'import
+            progress_callback: Fonction de callback pour la progression (current, total)
+            total: Nombre total de fichiers (pour la progression)
             
         Returns:
             Nombre total de fichiers importés
         """
         total_files = 0
+        current_progress = [0]  # Liste mutable pour partager entre fonctions récursives
         
         try:
             folder_name = os.path.basename(folder_path)
@@ -148,7 +187,13 @@ class FileHandler:
                             # Enregistrer dans la base de données
                             db.add_file(current_folder_id, item, dest_path)
                             total_files += 1
-                            print(f"      ✅ Fichier importé avec succès")
+                            current_progress[0] += 1
+                            
+                            # Appeler le callback de progression
+                            if progress_callback and total > 0:
+                                progress_callback(current_progress[0], total)
+                            
+                            print(f"      ✅ Fichier importé avec succès ({current_progress[0]}/{total})")
                         else:
                             print(f"      ❌ Échec de l'importation du fichier")
                     else:
@@ -161,7 +206,15 @@ class FileHandler:
                 if os.path.isdir(item_path):
                     # C'est un sous-dossier, traiter récursivement
                     print(f"   📂 Sous-dossier détecté: {item}")
-                    sub_count = self.save_files_from_folder_with_panel(item_path, db, current_folder_id, panel)
+                    sub_count = self._import_subfolder_recursive(
+                        item_path, 
+                        db, 
+                        current_folder_id, 
+                        panel, 
+                        progress_callback, 
+                        total, 
+                        current_progress
+                    )
                     total_files += sub_count
             
             print(f"✅ Dossier '{folder_name}' importé: {total_files} fichier(s)")
@@ -171,6 +224,77 @@ class FileHandler:
             print(f"❌ Erreur lors de l'importation du dossier: {e}")
             import traceback
             traceback.print_exc()
+            return total_files
+    
+    def _import_subfolder_recursive(self, folder_path: str, db, 
+                                   parent_folder_id: int,
+                                   panel: str,
+                                   progress_callback,
+                                   total: int,
+                                   current_progress: list) -> int:
+        """
+        Fonction auxiliaire pour importer récursivement un sous-dossier
+        
+        Args:
+            folder_path: Chemin du dossier
+            db: Instance BDD
+            parent_folder_id: ID du parent
+            panel: Panel
+            progress_callback: Callback de progression
+            total: Total de fichiers
+            current_progress: Liste mutable [count] pour partager la progression
+            
+        Returns:
+            Nombre de fichiers importés
+        """
+        total_files = 0
+        
+        try:
+            folder_name = os.path.basename(folder_path)
+            
+            # Créer le sous-dossier
+            current_folder_id = db.create_folder(folder_name, parent_folder_id, panel)
+            
+            # Lister les éléments
+            items = os.listdir(folder_path)
+            
+            # Traiter les fichiers
+            for item in items:
+                item_path = os.path.join(folder_path, item)
+                
+                if os.path.isfile(item_path):
+                    if self.is_allowed_file(item):
+                        success, dest_path = self.save_file(item_path, item, folder_name)
+                        
+                        if success:
+                            db.add_file(current_folder_id, item, dest_path)
+                            total_files += 1
+                            current_progress[0] += 1
+                            
+                            # Callback de progression
+                            if progress_callback and total > 0:
+                                progress_callback(current_progress[0], total)
+            
+            # Traiter les sous-dossiers récursivement
+            for item in items:
+                item_path = os.path.join(folder_path, item)
+                
+                if os.path.isdir(item_path):
+                    sub_count = self._import_subfolder_recursive(
+                        item_path, 
+                        db, 
+                        current_folder_id, 
+                        panel, 
+                        progress_callback, 
+                        total, 
+                        current_progress
+                    )
+                    total_files += sub_count
+            
+            return total_files
+            
+        except Exception as e:
+            print(f"❌ Erreur import sous-dossier: {e}")
             return total_files
     
     def open_file(self, filepath: str) -> bool:
